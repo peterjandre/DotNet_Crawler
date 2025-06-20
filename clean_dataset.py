@@ -72,6 +72,11 @@ def display_example(example: Dict, index: int, total: int, show_full: bool = Fal
     print(f"Example {index + 1} of {total} (Line {example.get('_line_number', 'unknown')})")
     if show_full:
         print("📖 FULL TEXT MODE")
+    
+    # Show curation status
+    if example.get('manually_curated'):
+        print("✋ MANUALLY CURATED")
+    
     print(f"{'='*80}")
     
     print(f"\n📄 Source: {example.get('source_url', 'N/A')}")
@@ -144,7 +149,8 @@ def show_help():
     print("  - Use 'f' to see the full code when preview is too short")
 
 
-def interactive_clean(input_file: str, output_file: str = None, start_from: int = 0):
+def interactive_clean(input_file: str, output_file: str = None, start_from: int = 0, 
+                     include_manual: bool = True, exclude_manual: bool = False):
     """Interactively clean the JSONL file."""
     if output_file is None:
         output_file = input_file.replace('.jsonl', '_cleaned.jsonl')
@@ -156,7 +162,25 @@ def interactive_clean(input_file: str, output_file: str = None, start_from: int 
         print("❌ No examples found in the file.")
         return
     
-    print(f"✅ Loaded {len(examples)} examples")
+    # Filter examples based on manual curation preferences
+    original_count = len(examples)
+    if exclude_manual:
+        examples = [ex for ex in examples if not ex.get('manually_curated', False)]
+        print(f"🚫 Excluded {original_count - len(examples)} manually curated examples")
+    elif not include_manual:
+        examples = [ex for ex in examples if not ex.get('manually_curated', False)]
+        print(f"🚫 Excluded {original_count - len(examples)} manually curated examples")
+    
+    if not examples:
+        print("❌ No examples remain after filtering.")
+        return
+    
+    print(f"✅ Loaded {len(examples)} examples for review")
+    
+    # Count manually curated examples
+    manual_count = sum(1 for ex in examples if ex.get('manually_curated', False))
+    if manual_count > 0:
+        print(f"✋ {manual_count} manually curated examples included")
     
     # Filter out already reviewed examples if starting from a specific point
     if start_from > 0:
@@ -223,6 +247,10 @@ def main():
     parser.add_argument('--output', '-o', help='Output file (default: input_cleaned.jsonl)')
     parser.add_argument('--start-from', '-s', type=int, default=0, 
                        help='Start from example number (0-indexed)')
+    parser.add_argument('--exclude-manual', action='store_true',
+                       help='Exclude manually curated examples from cleaning')
+    parser.add_argument('--manual-only', action='store_true',
+                       help='Only clean manually curated examples')
     
     args = parser.parse_args()
     
@@ -230,8 +258,15 @@ def main():
         print(f"❌ Input file {args.input_file} not found.")
         sys.exit(1)
     
+    # Handle mutually exclusive options
+    if args.exclude_manual and args.manual_only:
+        print("❌ Cannot use both --exclude-manual and --manual-only")
+        sys.exit(1)
+    
     try:
-        interactive_clean(args.input_file, args.output, args.start_from)
+        interactive_clean(args.input_file, args.output, args.start_from, 
+                         include_manual=not args.exclude_manual, 
+                         exclude_manual=args.manual_only)
     except KeyboardInterrupt:
         print(f"\n\n⏹️  Interrupted by user. Progress may be lost.")
         sys.exit(1)

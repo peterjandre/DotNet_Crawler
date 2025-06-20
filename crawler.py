@@ -120,7 +120,12 @@ class WebCrawler:
         vb_blocks = []
         csharp_blocks = []
         
-        # Extract using regex patterns
+        # First try to extract from table-based layouts (older HTML format)
+        table_vb, table_cs = self._extract_from_table_layout(soup)
+        vb_blocks.extend(table_vb)
+        csharp_blocks.extend(table_cs)
+        
+        # Then try modern code block patterns
         for pattern in self.vb_patterns:
             matches = re.findall(pattern, html_content, re.DOTALL | re.IGNORECASE)
             vb_blocks.extend(matches)
@@ -139,6 +144,112 @@ class WebCrawler:
         
         return vb_blocks, csharp_blocks
     
+    def _extract_from_table_layout(self, soup: BeautifulSoup) -> Tuple[List[str], List[str]]:
+        """Extract VB.NET and C# code from table-based layouts (older HTML format)."""
+        vb_blocks = []
+        csharp_blocks = []
+        
+        # Look for tables that might contain VB.NET vs C# comparisons
+        tables = soup.find_all('table')
+        
+        for table in tables:
+            # Check if this table has a header row indicating VB.NET vs C# comparison
+            header_row = table.find('tr')
+            if not header_row:
+                continue
+                
+            header_cells = header_row.find_all(['td', 'th'])
+            if len(header_cells) < 2:
+                continue
+            
+            # Check if header contains VB.NET and C# indicators
+            header_text = ' '.join([cell.get_text().strip() for cell in header_cells]).lower()
+            if not ('vb.net' in header_text or 'visual basic' in header_text) or 'c#' not in header_text:
+                continue
+            
+            # Find the data rows (skip the header row)
+            data_rows = table.find_all('tr')[1:]  # Skip header row
+            
+            for row in data_rows:
+                cells = row.find_all(['td', 'th'])
+                if len(cells) >= 2:
+                    # First cell is VB.NET, second cell is C#
+                    vb_cell = cells[0]
+                    cs_cell = cells[1]
+                    
+                    vb_text = self._clean_table_cell_text(vb_cell)
+                    cs_text = self._clean_table_cell_text(cs_cell)
+                    
+                    # Only add if both cells contain substantial code
+                    if self._looks_like_vb_code(vb_text) and self._looks_like_csharp_code(cs_text):
+                        vb_blocks.append(vb_text)
+                        csharp_blocks.append(cs_text)
+        
+        return vb_blocks, csharp_blocks
+    
+    def _clean_table_cell_text(self, cell) -> str:
+        """Clean and format text from a table cell."""
+        # Remove HTML tags but preserve line breaks
+        text = cell.get_text()
+        
+        # Replace common HTML entities
+        text = text.replace('&nbsp;', ' ')
+        text = text.replace('&amp;', '&')
+        text = text.replace('&lt;', '<')
+        text = text.replace('&gt;', '>')
+        
+        # Clean up whitespace and line breaks
+        lines = []
+        for line in text.split('\n'):
+            line = line.strip()
+            if line:  # Only add non-empty lines
+                lines.append(line)
+        
+        return '\n'.join(lines)
+    
+    def _looks_like_vb_code(self, text: str) -> bool:
+        """Check if text looks like VB.NET code."""
+        text_lower = text.lower()
+        
+        # VB.NET keywords and patterns
+        vb_indicators = [
+            'dim ', 'sub ', 'function ', 'end sub', 'end function', 'end class',
+            'namespace ', 'imports ', 'byval ', 'byref ', 'as ', 'if ', 'then ',
+            'elseif ', 'else ', 'end if', 'for ', 'next ', 'while ', 'end while',
+            'do ', 'loop ', 'select case', 'end select', 'class ', 'structure ',
+            'interface ', 'enum ', 'end enum', 'property ', 'end property',
+            'public ', 'private ', 'protected ', 'friend ', 'shared ', 'overridable ',
+            'overrides ', 'mustoverride ', 'notinheritable ', 'mustinherit ',
+            'const ', 'readonly ', 'new ', 'nothing ', 'true ', 'false ',
+            'console.writeline', 'console.read', 'string.format', 'convert.to',
+            'try ', 'catch ', 'finally ', 'end try', 'throw ', 'on error ',
+            'with ', 'end with', 'using ', 'end using', 'synclock ', 'end synclock'
+        ]
+        
+        return any(indicator in text_lower for indicator in vb_indicators)
+    
+    def _looks_like_csharp_code(self, text: str) -> bool:
+        """Check if text looks like C# code."""
+        text_lower = text.lower()
+        
+        # C# keywords and patterns
+        cs_indicators = [
+            'using ', 'namespace ', 'class ', 'public ', 'private ', 'protected ',
+            'internal ', 'static ', 'void ', 'int ', 'string ', 'bool ', 'var ',
+            'if ', 'else ', 'for ', 'while ', 'do ', 'switch ', 'case ', 'default ',
+            'break ', 'continue ', 'return ', 'new ', 'null ', 'true ', 'false ',
+            'try ', 'catch ', 'finally ', 'throw ', 'using ', 'lock ', 'async ',
+            'await ', 'interface ', 'enum ', 'struct ', 'delegate ', 'event ',
+            'property ', 'get ', 'set ', 'virtual ', 'override ', 'abstract ',
+            'sealed ', 'partial ', 'const ', 'readonly ', 'out ', 'ref ', 'params ',
+            'this ', 'base ', 'typeof ', 'is ', 'as ', 'in ', 'where ', 'select ',
+            'from ', 'orderby ', 'group ', 'join ', 'let ', 'into ', 'by ',
+            'console.writeline', 'console.read', 'string.format', 'convert.to',
+            'math.', 'system.', 'list<', 'dictionary<', 'ienumerable<', 'task<'
+        ]
+        
+        return any(indicator in text_lower for indicator in cs_indicators)
+    
     def is_translation_page(self, html_content: str) -> bool:
         """Check if the page likely contains translation content."""
         content_lower = html_content.lower()
@@ -148,17 +259,19 @@ class WebCrawler:
         """Find pairs of VB.NET and C# code that likely represent translations."""
         pairs = []
         
-        # Simple pairing: if we have equal numbers, pair them in order
+        # For table-based layouts, we expect the blocks to be already paired
+        # (same index in both lists represents a translation pair)
         if len(vb_blocks) == len(csharp_blocks) and len(vb_blocks) > 0:
             for vb, cs in zip(vb_blocks, csharp_blocks):
                 if self._looks_like_translation_pair(vb, cs):
                     pairs.append((vb, cs))
         
-        # Try to find pairs based on similar structure or content
-        for vb_block in vb_blocks:
-            for cs_block in csharp_blocks:
-                if self._looks_like_translation_pair(vb_block, cs_block):
-                    pairs.append((vb_block, cs_block))
+        # If we don't have equal numbers, try to find pairs based on similar structure or content
+        if not pairs:
+            for vb_block in vb_blocks:
+                for cs_block in csharp_blocks:
+                    if self._looks_like_translation_pair(vb_block, cs_block):
+                        pairs.append((vb_block, cs_block))
         
         return pairs
     

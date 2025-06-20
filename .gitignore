@@ -44,8 +44,9 @@ Thumbs.db
 translations_*.jsonl
 dataset_*.jsonl
 *.log
+Test_Comparison_files/
 
 # Playwright
 test-results/
 playwright-report/
-playwright/.cache/ 
+playwright/.cache/

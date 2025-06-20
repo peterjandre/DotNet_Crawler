@@ -1,0 +1,17 @@
+# Sample URLs for VB.NET to C# translation examples
+# Add your own URLs here, one per line
+# Lines starting with # are comments
+
+# Microsoft Documentation
+https://docs.microsoft.com/en-us/dotnet/visual-basic/programming-guide/language-features/data-types/
+
+# Stack Overflow examples
+https://stackoverflow.com/questions/tagged/vb.net+c%23
+
+# Code conversion tools
+https://converter.telerik.com/
+
+# GitHub repositories with translations
+https://github.com/search?q=vb.net+c%23+translation
+
+# Add more URLs here... 
